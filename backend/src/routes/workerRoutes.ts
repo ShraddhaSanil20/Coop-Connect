@@ -36,13 +36,18 @@ router.get('/professions', (req, res) => {
 
 // GET /api/v1/workers - Public/Authenticated listing of all workers
 router.get('/', (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
   const workers = db.prepare(`
     SELECT 
       w.*, u.name, u.phone, u.email, u.avatar_url
     FROM worker_profiles w
     JOIN users u ON w.user_id = u.id
+    WHERE w.id NOT IN (
+      SELECT worker_id FROM worker_leaves 
+      WHERE status = 'APPROVED' AND ? BETWEEN start_date AND end_date
+    )
     ORDER BY w.fairness_debt DESC
-  `).all() as any[];
+  `).all(today) as any[];
 
   const formatted = workers.map(w => ({
     id: w.id,
@@ -65,8 +70,8 @@ router.get('/', (req, res) => {
     service_radius_km: w.service_radius_km,
     experienceYears: w.experience_years,
     totalJobsCompleted: w.total_jobs_completed,
-    averageRating: w.average_rating,
-    average_rating: w.average_rating,
+    averageRating: w.total_jobs_completed === 0 ? 0 : w.average_rating,
+    average_rating: w.total_jobs_completed === 0 ? 0 : w.average_rating,
     fairnessDebt: w.fairness_debt,
     fairness_debt: w.fairness_debt,
     opportunityScore: w.opportunity_score,
@@ -80,13 +85,18 @@ router.get('/', (req, res) => {
 
 // GET /api/v1/workers/all - Public/Authenticated listing of workers for cooperative view / map
 router.get('/all', (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
   const workers = db.prepare(`
     SELECT 
       w.*, u.name, u.phone, u.email, u.avatar_url
     FROM worker_profiles w
     JOIN users u ON w.user_id = u.id
+    WHERE w.id NOT IN (
+      SELECT worker_id FROM worker_leaves 
+      WHERE status = 'APPROVED' AND ? BETWEEN start_date AND end_date
+    )
     ORDER BY w.fairness_debt DESC
-  `).all() as any[];
+  `).all(today) as any[];
 
   const formatted = workers.map(w => ({
     id: w.id,
@@ -109,8 +119,8 @@ router.get('/all', (req, res) => {
     service_radius_km: w.service_radius_km,
     experienceYears: w.experience_years,
     totalJobsCompleted: w.total_jobs_completed,
-    averageRating: w.average_rating,
-    average_rating: w.average_rating,
+    averageRating: w.total_jobs_completed === 0 ? 0 : w.average_rating,
+    average_rating: w.total_jobs_completed === 0 ? 0 : w.average_rating,
     fairnessDebt: w.fairness_debt,
     fairness_debt: w.fairness_debt,
     opportunityScore: w.opportunity_score,

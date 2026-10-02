@@ -15,6 +15,17 @@ export const WorkerView: React.FC = () => {
   const [savingSkills, setSavingSkills] = useState<boolean>(false);
   const [skillsSavedMsg, setSkillsSavedMsg] = useState<boolean>(false);
 
+  // Leave Portal state
+  const [showLeaveModal, setShowLeaveModal] = useState<boolean>(false);
+  const [leaveStartDate, setLeaveStartDate] = useState<string>('');
+  const [leaveEndDate, setLeaveEndDate] = useState<string>('');
+  const [leaveReason, setLeaveReason] = useState<string>('');
+  const [submittingLeave, setSubmittingLeave] = useState<boolean>(false);
+  const [myLeaves, setMyLeaves] = useState<any[]>([]);
+
+  // Emergency SOS Jobs state
+  const [activeSosIncidents, setActiveSosIncidents] = useState<any[]>([]);
+
   const fetchWorkerDashboard = async () => {
     try {
       const res = await fetch('/api/v1/workers/my-dashboard');
@@ -36,6 +47,30 @@ export const WorkerView: React.FC = () => {
     }
   };
 
+  const fetchMyLeaves = async () => {
+    try {
+      const res = await fetch('/api/v1/leaves/mine');
+      if (res.ok) {
+        const data = await res.json();
+        setMyLeaves(data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch worker leaves:', err);
+    }
+  };
+
+  const fetchActiveSosJobs = async () => {
+    try {
+      const res = await fetch('/api/v1/safety/active');
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSosIncidents(data.incidents || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch active SOS incidents:', err);
+    }
+  };
+
   const fetchSuggestedSkills = async (profession: string) => {
     try {
       const res = await fetch(`/api/v1/workers/suggested-skills?profession=${encodeURIComponent(profession)}`);
@@ -50,7 +85,55 @@ export const WorkerView: React.FC = () => {
 
   useEffect(() => {
     fetchWorkerDashboard();
+    fetchMyLeaves();
+    fetchActiveSosJobs();
   }, []);
+
+  const handleApplyLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveStartDate || !leaveEndDate || !leaveReason) return;
+
+    setSubmittingLeave(true);
+    try {
+      const res = await fetch('/api/v1/leaves', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start_date: leaveStartDate,
+          end_date: leaveEndDate,
+          reason: leaveReason,
+        }),
+      });
+
+      if (res.ok) {
+        setShowLeaveModal(false);
+        setLeaveStartDate('');
+        setLeaveEndDate('');
+        setLeaveReason('');
+        fetchMyLeaves();
+        fetchWorkerDashboard();
+      }
+    } catch (err) {
+      console.error('Failed to submit leave application:', err);
+    } finally {
+      setSubmittingLeave(false);
+    }
+  };
+
+  const updateSosStatus = async (sosId: string, status: string) => {
+    try {
+      const res = await fetch(`/api/v1/safety/sos/${sosId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        fetchActiveSosJobs();
+      }
+    } catch (err) {
+      console.error('Failed to update SOS status:', err);
+    }
+  };
 
   const toggleAvailability = async () => {
     const nextVal = !availability;
@@ -137,8 +220,17 @@ export const WorkerView: React.FC = () => {
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-extrabold text-coop-forest">{profile?.name}</h2>
               <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-0.5 rounded-full flex items-center gap-1 border border-emerald-300">
-                <ShieldCheck className="w-3.5 h-3.5" /> Safety Verified — Prototype
+                <ShieldCheck className="w-3.5 h-3.5" /> Safety Verified
               </span>
+              {profile?.totalJobsCompleted === 0 ? (
+                <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2.5 py-0.5 rounded-full border border-amber-300">
+                  ⭐ No ratings yet (New Partner)
+                </span>
+              ) : (
+                <span className="bg-emerald-50 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                  ⭐ {profile?.averageRating?.toFixed(1)} ({profile?.totalJobsCompleted} jobs)
+                </span>
+              )}
             </div>
             <p className="text-xs text-coop-charcoal-light mt-1">
               Profession: <strong className="text-stone-800">{profile?.profession || 'Certified Worker'}</strong> • Phone: {profile?.phone}
@@ -146,31 +238,153 @@ export const WorkerView: React.FC = () => {
           </div>
         </div>
 
-        {/* Availability Switch */}
-        <div className="flex items-center gap-3 bg-coop-sand px-4 py-2 rounded-xl border border-coop-border">
-          <div className="text-right">
-            <div className="text-xs font-bold text-coop-forest">Dispatch Status</div>
-            <div className="text-[10px] text-coop-charcoal-light font-semibold">
-              {availability ? 'Online & Available' : 'Offline / Rest Mode'}
-            </div>
-          </div>
+        {/* Action Controls: Apply for Leave & Availability */}
+        <div className="flex items-center gap-3">
           <button
-            onClick={toggleAvailability}
-            className="text-coop-forest hover:text-coop-forest-light transition-all"
+            onClick={() => setShowLeaveModal(true)}
+            className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-xs"
           >
-            {availability ? (
-              <ToggleRight className="w-8 h-8 text-emerald-600" />
-            ) : (
-              <ToggleLeft className="w-8 h-8 text-coop-charcoal-muted" />
-            )}
+            <Clock className="w-4 h-4 text-amber-600" /> Apply for Leave
           </button>
+
+          <div className="flex items-center gap-3 bg-coop-sand px-4 py-2 rounded-xl border border-coop-border">
+            <div className="text-right">
+              <div className="text-xs font-bold text-coop-forest">Dispatch Status</div>
+              <div className="text-[10px] text-coop-charcoal-light font-semibold">
+                {availability ? 'Online & Available' : 'Offline / Rest Mode'}
+              </div>
+            </div>
+            <button
+              onClick={toggleAvailability}
+              className="text-coop-forest hover:text-coop-forest-light transition-all"
+            >
+              {availability ? (
+                <ToggleRight className="w-8 h-8 text-emerald-600" />
+              ) : (
+                <ToggleLeft className="w-8 h-8 text-coop-charcoal-muted" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* Emergency SOS Incidents Card (if active) */}
+      {activeSosIncidents.length > 0 && (
+        <div className="bg-rose-950/90 border-2 border-rose-500 text-white rounded-2xl p-6 shadow-2xl space-y-4 animate-pulse">
+          <div className="flex items-center justify-between border-b border-rose-800/80 pb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-6 h-6 text-rose-400 animate-bounce" />
+              <h3 className="font-extrabold text-base text-rose-100 tracking-wide uppercase">
+                EMERGENCY SOS ALERT — IMMEDIATE RESPONDER NEEDED
+              </h3>
+            </div>
+            <span className="bg-rose-500 text-white text-xs font-black px-3 py-1 rounded-full uppercase">
+              Priority: CRITICAL ({activeSosIncidents[0].status})
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <p className="text-rose-200 font-medium">Incident Details:</p>
+              <p className="text-sm font-bold text-white mt-0.5">{activeSosIncidents[0].incident_type || 'Customer Emergency Alert'}</p>
+              <p className="text-rose-300 mt-1 flex items-center gap-1">
+                <MapPin className="w-4 h-4 text-rose-400" /> Location: {activeSosIncidents[0].lat}, {activeSosIncidents[0].lng} (Bengaluru Zone)
+              </p>
+            </div>
+            <div className="bg-rose-900/60 p-3 rounded-xl border border-rose-700/50">
+              <p className="text-rose-200 text-[11px]">Emergency Response Protocol:</p>
+              <p className="text-white text-xs font-semibold mt-1">
+                Verified Worker SOS Priority Response • Rapid On-Site Support
+              </p>
+            </div>
+          </div>
+
+          {/* Emergency Job Actions */}
+          <div className="pt-2 flex flex-wrap gap-3">
+            {activeSosIncidents[0].status === 'OPEN' && (
+              <button
+                onClick={() => updateSosStatus(activeSosIncidents[0].id, 'ACCEPTED')}
+                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-extrabold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Accept SOS Emergency Dispatch
+              </button>
+            )}
+            {activeSosIncidents[0].status === 'ACCEPTED' && (
+              <button
+                onClick={() => updateSosStatus(activeSosIncidents[0].id, 'ON_THE_WAY')}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-extrabold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+              >
+                <Clock className="w-4 h-4" /> En Route to Emergency Site
+              </button>
+            )}
+            {activeSosIncidents[0].status === 'ON_THE_WAY' && (
+              <button
+                onClick={() => updateSosStatus(activeSosIncidents[0].id, 'ARRIVED')}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-extrabold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+              >
+                <MapPin className="w-4 h-4" /> Arrived at Incident Site
+              </button>
+            )}
+            {activeSosIncidents[0].status === 'ARRIVED' && (
+              <button
+                onClick={() => updateSosStatus(activeSosIncidents[0].id, 'RESOLVED')}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" /> Mark SOS Incident Resolved
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Grid: Opportunities & Signature Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Columns: Active Job & Skill Editor */}
+        {/* Left 2 Columns: Active Job & Leave History & Skill Editor */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Leave History List Card */}
+          {myLeaves.length > 0 && (
+            <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-coop space-y-3">
+              <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                  <h3 className="font-extrabold text-base text-stone-800">My Cooperative Leave Requests</h3>
+                </div>
+                <span className="text-xs font-bold text-stone-500">{myLeaves.length} Request(s)</span>
+              </div>
+              <div className="space-y-2">
+                {myLeaves.map((l: any) => (
+                  <div key={l.id} className="bg-stone-50 border border-stone-200 p-3 rounded-xl flex items-center justify-between text-xs">
+                    <div>
+                      <div className="font-bold text-stone-800">
+                        {l.start_date} to {l.end_date}
+                      </div>
+                      <div className="text-[11px] text-stone-600 mt-0.5 font-medium">
+                        Reason: {l.reason}
+                      </div>
+                    </div>
+                    <div>
+                      {l.status === 'PENDING' && (
+                        <span className="bg-amber-100 text-amber-900 text-xs font-bold px-3 py-1 rounded-full border border-amber-300">
+                          ⏳ Pending Approval
+                        </span>
+                      )}
+                      {l.status === 'APPROVED' && (
+                        <span className="bg-emerald-100 text-emerald-900 text-xs font-bold px-3 py-1 rounded-full border border-emerald-300">
+                          ✓ Approved Leave (Offline Filter Active)
+                        </span>
+                      )}
+                      {l.status === 'REJECTED' && (
+                        <span className="bg-rose-100 text-rose-900 text-xs font-bold px-3 py-1 rounded-full border border-rose-300">
+                          ✕ Leave Rejected
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Active Job Card */}
           {activeBookings.length > 0 ? (
             <div className="bg-white border-2 border-coop-forest rounded-2xl p-6 shadow-coop space-y-4">
@@ -433,6 +647,83 @@ export const WorkerView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Apply for Leave Modal */}
+      {showLeaveModal && (
+        <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white border border-stone-200 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+              <div className="flex items-center space-x-2">
+                <Clock className="w-5 h-5 text-amber-600" />
+                <h3 className="font-extrabold text-base text-stone-800">Apply for Cooperative Leave</h3>
+              </div>
+              <button
+                onClick={() => setShowLeaveModal(false)}
+                className="text-stone-400 hover:text-stone-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleApplyLeave} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Leave Start Date</label>
+                <input
+                  type="date"
+                  value={leaveStartDate}
+                  onChange={(e) => setLeaveStartDate(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:border-coop-forest font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Leave End Date</label>
+                <input
+                  type="date"
+                  value={leaveEndDate}
+                  onChange={(e) => setLeaveEndDate(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:border-coop-forest font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-stone-700 mb-1">Reason for Leave</label>
+                <textarea
+                  value={leaveReason}
+                  onChange={(e) => setLeaveReason(e.target.value)}
+                  required
+                  rows={3}
+                  placeholder="e.g. Health checkup, Family event, Rest & Recovery..."
+                  className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:border-coop-forest font-semibold"
+                />
+              </div>
+
+              <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                ℹ️ <strong>Cooperative Policy:</strong> Approved leave automatically pauses your availability in FairDispatch matching and hides map pins during leave dates.
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLeaveModal(false)}
+                  className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl border border-stone-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingLeave}
+                  className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl shadow-md transition-all"
+                >
+                  {submittingLeave ? 'Submitting...' : 'Submit Application'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

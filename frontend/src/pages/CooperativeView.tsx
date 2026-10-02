@@ -11,7 +11,8 @@ export const CooperativeView: React.FC = () => {
   const [proposals, setProposals] = useState<GovernanceProposal[]>([]);
   const [welfareLogs, setWelfareLogs] = useState<any[]>([]);
   const [workersList, setWorkersList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'WORKERS' | 'SIMULATOR' | 'GOVERNANCE' | 'WELFARE'>('OVERVIEW');
+  const [allLeaves, setAllLeaves] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'WORKERS' | 'LEAVES' | 'SIMULATOR' | 'GOVERNANCE' | 'WELFARE'>('OVERVIEW');
 
   // Admin Worker Modal state
   const [isWorkerModalOpen, setIsWorkerModalOpen] = useState<boolean>(false);
@@ -29,11 +30,12 @@ export const CooperativeView: React.FC = () => {
 
   const fetchCommandCenterData = async () => {
     try {
-      const [pulseRes, propRes, welfRes, workerRes] = await Promise.all([
+      const [pulseRes, propRes, welfRes, workerRes, leaveRes] = await Promise.all([
         fetch('/api/v1/cooperative/pulse'),
         fetch('/api/v1/governance/proposals'),
         fetch('/api/v1/welfare/history'),
         fetch('/api/v1/workers'),
+        fetch('/api/v1/leaves/all'),
       ]);
 
       if (pulseRes.ok) {
@@ -55,8 +57,28 @@ export const CooperativeView: React.FC = () => {
         const data = await workerRes.json();
         setWorkersList(data.workers || []);
       }
+
+      if (leaveRes.ok) {
+        const data = await leaveRes.json();
+        setAllLeaves(data.data || []);
+      }
     } catch (err) {
       console.error('Failed to fetch command center data:', err);
+    }
+  };
+
+  const handleUpdateLeaveStatus = async (leaveId: string, status: 'APPROVED' | 'REJECTED') => {
+    try {
+      const res = await fetch(`/api/v1/leaves/${leaveId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        fetchCommandCenterData();
+      }
+    } catch (err) {
+      console.error('Failed to update leave status:', err);
     }
   };
 
@@ -192,6 +214,14 @@ export const CooperativeView: React.FC = () => {
             Worker Roster ({workersList.length})
           </button>
           <button
+            onClick={() => setActiveTab('LEAVES')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'LEAVES' ? 'bg-coop-forest text-white shadow-sm' : 'text-coop-charcoal hover:text-coop-forest'
+            }`}
+          >
+            Leave Desk ({allLeaves.filter(l => l.status === 'PENDING').length})
+          </button>
+          <button
             onClick={() => setActiveTab('SIMULATOR')}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'SIMULATOR' ? 'bg-coop-forest text-white shadow-sm' : 'text-coop-charcoal hover:text-coop-forest'
@@ -322,6 +352,101 @@ export const CooperativeView: React.FC = () => {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LEAVE DESK MANAGEMENT TAB */}
+      {activeTab === 'LEAVES' && (
+        <div className="space-y-6">
+          <div className="bg-white p-4 rounded-xl border border-coop-border shadow-sm flex items-center justify-between">
+            <div>
+              <h3 className="font-extrabold text-lg text-coop-forest">Worker Cooperative Leave Management Desk</h3>
+              <p className="text-xs text-coop-charcoal-light">Review and approve worker leave applications. Approved leave automatically excludes workers from FairDispatch and Map candidates.</p>
+            </div>
+            <span className="bg-amber-100 text-amber-900 text-xs font-bold px-3 py-1 rounded-full border border-amber-300">
+              {allLeaves.filter(l => l.status === 'PENDING').length} Pending Approval(s)
+            </span>
+          </div>
+
+          <div className="bg-white border border-coop-border rounded-xl shadow-coop overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-coop-sand text-coop-forest font-bold border-b border-coop-border">
+                  <tr>
+                    <th className="p-3.5">Worker Name</th>
+                    <th className="p-3.5">Profession</th>
+                    <th className="p-3.5">Leave Duration</th>
+                    <th className="p-3.5">Reason</th>
+                    <th className="p-3.5">Status</th>
+                    <th className="p-3.5 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-coop-border/60 text-coop-charcoal">
+                  {allLeaves.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-stone-500 font-medium">
+                        No leave requests submitted yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    allLeaves.map((l) => (
+                      <tr key={l.id} className="hover:bg-coop-bg/60 transition-colors">
+                        <td className="p-3.5 font-bold text-coop-forest">
+                          {l.worker_name || 'Worker'}
+                        </td>
+                        <td className="p-3.5 font-semibold text-stone-700">
+                          {l.profession || 'Electrician'}
+                        </td>
+                        <td className="p-3.5 font-mono text-[11px]">
+                          {l.start_date} to {l.end_date}
+                        </td>
+                        <td className="p-3.5 text-stone-600 max-w-xs truncate">
+                          {l.reason}
+                        </td>
+                        <td className="p-3.5">
+                          {l.status === 'PENDING' && (
+                            <span className="bg-amber-100 text-amber-900 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-300">
+                              Pending
+                            </span>
+                          )}
+                          {l.status === 'APPROVED' && (
+                            <span className="bg-emerald-100 text-emerald-900 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-300">
+                              Approved
+                            </span>
+                          )}
+                          {l.status === 'REJECTED' && (
+                            <span className="bg-rose-100 text-rose-900 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-rose-300">
+                              Rejected
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-center space-x-2">
+                          {l.status === 'PENDING' ? (
+                            <>
+                              <button
+                                onClick={() => handleUpdateLeaveStatus(l.id, 'APPROVED')}
+                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleUpdateLeaveStatus(l.id, 'REJECTED')}
+                                className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-stone-400 font-semibold">Decided</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

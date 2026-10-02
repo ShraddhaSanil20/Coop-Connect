@@ -139,11 +139,22 @@ export function initDatabase() {
       reporter_id TEXT NOT NULL REFERENCES users(id),
       reporter_role TEXT NOT NULL,
       booking_id TEXT,
+      assigned_worker_id TEXT REFERENCES worker_profiles(id),
       incident_type TEXT NOT NULL,
       description TEXT NOT NULL,
       severity TEXT NOT NULL CHECK(severity IN ('LOW', 'MEDIUM', 'HIGH', 'SOS')),
-      status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'INVESTIGATING', 'RESOLVED')),
+      status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'ACCEPTED', 'ON_THE_WAY', 'ARRIVED', 'RESOLVED', 'CANCELLED')),
       resolved_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_leaves (
+      id TEXT PRIMARY KEY,
+      worker_id TEXT NOT NULL REFERENCES worker_profiles(id) ON DELETE CASCADE,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);

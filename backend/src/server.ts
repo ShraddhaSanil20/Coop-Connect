@@ -14,6 +14,7 @@ import coopRoutes from './routes/coopRoutes';
 import governanceRoutes from './routes/governanceRoutes';
 import welfareRoutes from './routes/welfareRoutes';
 import safetyRoutes from './routes/safetyRoutes';
+import leaveRoutes from './routes/leaveRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,7 +25,7 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'],
   credentials: true,
 }));
 
@@ -51,6 +52,7 @@ app.use('/api/v1/cooperative', coopRoutes);
 app.use('/api/v1/governance', governanceRoutes);
 app.use('/api/v1/welfare', welfareRoutes);
 app.use('/api/v1/safety', safetyRoutes);
+app.use('/api/v1/leaves', leaveRoutes);
 
 // Health Check
 app.get('/api/v1/health', (req, res) => {

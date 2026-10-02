@@ -105,6 +105,14 @@ export function evaluateFairDispatch(
     JOIN users u ON w.user_id = u.id
   `).all() as any[];
 
+  const today = new Date().toISOString().split('T')[0];
+  const activeLeaveWorkerIds = new Set(
+    (db.prepare(`
+      SELECT worker_id FROM worker_leaves 
+      WHERE status = 'APPROVED' AND ? BETWEEN start_date AND end_date
+    `).all(today) as any[]).map(l => l.worker_id)
+  );
+
   let hardFilteredCount = 0;
   const evaluatedCandidates: CandidateResult[] = [];
 
@@ -144,8 +152,13 @@ export function evaluateFairDispatch(
     const hasSkill = isAll || skills.some(s => s.toLowerCase().includes(reqLower) || reqLower.includes(s.toLowerCase()));
     const hasProfessionMatch = isAll || profLower.includes(reqLower) || reqLower.includes(profLower);
 
+    // Filter 0: Active Approved Leave
+    if (activeLeaveWorkerIds.has(worker.id)) {
+      isEligible = false;
+      hardFilterReason = 'Worker is on Approved Cooperative Leave';
+    }
     // Filter A: Verification Status
-    if (worker.verificationStatus !== 'VERIFIED' || !worker.safetyVerified) {
+    else if (worker.verificationStatus !== 'VERIFIED' || !worker.safetyVerified) {
       isEligible = false;
       hardFilterReason = 'Failed Safety Verification (Pending eShram / Identity audit)';
     }

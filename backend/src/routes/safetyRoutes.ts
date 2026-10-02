@@ -26,13 +26,14 @@ router.post('/sos', authenticateToken, (req: AuthRequest, res: Response) => {
   const assignedWorker = nearbyWorkers.length > 0 ? nearbyWorkers[0] : null;
 
   db.prepare(`
-    INSERT INTO safety_incidents (id, reporter_id, reporter_role, booking_id, incident_type, description, severity, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO safety_incidents (id, reporter_id, reporter_role, booking_id, assigned_worker_id, incident_type, description, severity, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     incidentId,
     userId,
     role,
     bookingId || null,
+    assignedWorker ? assignedWorker.id : null,
     'EMERGENCY_SOS',
     note || `EMERGENCY SOS ALERT TRIGGERED at (${userLat.toFixed(4)}, ${userLng.toFixed(4)}). Assigned: ${assignedWorker ? assignedWorker.name : 'Coop Patrol Desk'}`,
     'SOS',
@@ -54,19 +55,58 @@ router.post('/sos', authenticateToken, (req: AuthRequest, res: Response) => {
   });
 });
 
+// GET /api/v1/safety/active - Get Active SOS Incidents for Worker Map / Queue
+router.get('/active', authenticateToken, (req: AuthRequest, res: Response) => {
+  const activeIncidents = db.prepare(`
+    SELECT s.*, u.name as reporter_name, u.phone as reporter_phone
+    FROM safety_incidents s
+    JOIN users u ON s.reporter_id = u.id
+    WHERE s.severity = 'SOS' AND s.status IN ('OPEN', 'ACCEPTED', 'ON_THE_WAY', 'ARRIVED')
+    ORDER BY s.created_at DESC
+  `).all();
+
+  return res.json({ success: true, incidents: activeIncidents });
+});
+
+// PATCH /api/v1/safety/sos/:id/status - Update SOS Incident Status (Accept -> On the Way -> Arrived -> Resolved)
+router.patch('/sos/:id/status', authenticateToken, (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!['OPEN', 'ACCEPTED', 'ON_THE_WAY', 'ARRIVED', 'RESOLVED', 'CANCELLED'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'Invalid SOS status.' });
+  }
+
+  const userId = req.user?.id;
+  const worker = userId ? db.prepare('SELECT id FROM worker_profiles WHERE user_id = ?').get(userId) as { id: string } | undefined : undefined;
+
+  db.prepare(`
+    UPDATE safety_incidents 
+    SET status = ?, 
+        assigned_worker_id = COALESCE(assigned_worker_id, ?),
+        resolved_by = CASE WHEN ? = 'RESOLVED' THEN ? ELSE resolved_by END
+    WHERE id = ?
+  `).run(status, worker?.id || null, status, req.user?.name || 'Worker Responder', id);
+
+  const updated = db.prepare('SELECT * FROM safety_incidents WHERE id = ?').get(id);
+  return res.json({ success: true, incident: updated });
+});
+
 // PATCH /api/v1/safety/sos/:id/cancel - Cancel Active Emergency Incident
 router.patch('/sos/:id/cancel', authenticateToken, (req: AuthRequest, res: Response) => {
   const { id } = req.params;
-  db.prepare(`UPDATE safety_incidents SET status = 'RESOLVED' WHERE id = ?`).run(id);
-  return res.json({ message: 'Emergency SOS request successfully cancelled.', incidentId: id, status: 'RESOLVED' });
+  db.prepare(`UPDATE safety_incidents SET status = 'CANCELLED' WHERE id = ?`).run(id);
+  return res.json({ message: 'Emergency SOS request successfully cancelled.', incidentId: id, status: 'CANCELLED' });
 });
 
 // GET /api/v1/safety/incidents - List Safety Incidents for Cooperative Team
 router.get('/incidents', authenticateToken, (req: AuthRequest, res: Response) => {
   const incidents = db.prepare(`
-    SELECT s.*, u.name as reporter_name, u.phone as reporter_phone
+    SELECT s.*, u.name as reporter_name, u.phone as reporter_phone, w.profession as assigned_profession, wu.name as assigned_worker_name
     FROM safety_incidents s
     JOIN users u ON s.reporter_id = u.id
+    LEFT JOIN worker_profiles w ON s.assigned_worker_id = w.id
+    LEFT JOIN users wu ON w.user_id = wu.id
     ORDER BY s.created_at DESC
   `).all();
 
